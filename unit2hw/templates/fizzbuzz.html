@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Hello, {{name}}</h2>
+    <ol>
+        {% for x in range(1,n+1) %}
+            <li>{{x ** 2}}</li>
+        {% endfor %}
+    </ol>
+
+    <ol>
+        {% for x in range(1,n+1) %}
+            {% if x % 3 == 0 and x % 5 == 0 %}
+                <li>fizzbuzz</li>
+            {% elif x % 3 == 0 %}
+                <li>fizz</li>
+            {% elif x % 5 == 0 %}
+                <li>buzz</li>
+            {% else %}
+                <li>{{x}}</li>
+            {% endif %}
+        {% endfor %}
+    </ol>
+{% endblock %}
