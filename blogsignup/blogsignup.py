@@ -180,8 +180,8 @@ class BlogWelcome(Handler):
             print(u.username, u.password, u.userid, u.hm_hash, u.salt, u.email)
 
     def get(self):
-        import time
-        time.sleep(1)
+#import time
+#time.sleep(1)
 #self.print_db()
         hm_hash = self.request.cookies.get('userid')
         (userid, hm_hash) = hm_hash.split('|')
