@@ -103,7 +103,6 @@ class BlogSignup(Handler):
             return gbl_userid
         else:
             u = blog_user.get()
-#print("get_userid:", u.username, u.userid, u.hm_hash, u.salt, u.email)
             return -1
 
     def get_7_random_char(self):
@@ -223,7 +222,6 @@ class BlogLogin(Handler):
 
 class BlogLogout(Handler):
     def get(self):
-#hm_hash = self.request.cookies.get('userid')
         self.response.headers.add_header('Set-Cookie', 'userid=; Path=/')
         self.redirect('/blog/signup')
 
@@ -235,9 +233,6 @@ class BlogWelcome(Handler):
             print(u.username, u.password, u.userid, u.hm_hash, u.salt, u.email)
 
     def get(self):
-#import time
-#time.sleep(1)
-#self.print_db()
         hm_hash = self.request.cookies.get('userid')
         if hm_hash:
             (userid, hm_hash) = hm_hash.split('|')
@@ -245,7 +240,6 @@ class BlogWelcome(Handler):
             self.redirect('/blog/signup')
             return
 
-#print(userid, hm_hash)
         blog_user = db.GqlQuery("SELECT * FROM BlogUser WHERE hm_hash = :1", hm_hash)
         if blog_user.count() == 0:
             self.redirect('/blog/signup')
@@ -253,9 +247,6 @@ class BlogWelcome(Handler):
             b = blog_user.get()
             if b.userid != userid:
                 self.redirect('/blog/signup')
-#db_hm_hash = hmac.new(str(b.salt), str(userid)).hexdigest()
-#if db_hm_hash != hm_hash:
-#self.redirect('/blog/signup')
             else:
                 self.render('welcome.html', user=b)
 
