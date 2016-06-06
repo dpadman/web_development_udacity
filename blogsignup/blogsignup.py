@@ -103,7 +103,7 @@ class BlogSignup(Handler):
             return gbl_userid
         else:
             u = blog_user.get()
-            print("get_userid:", u.username, u.userid, u.hm_hash, u.salt, u.email)
+#print("get_userid:", u.username, u.userid, u.hm_hash, u.salt, u.email)
             return -1
 
     def get_7_random_char(self):
@@ -221,6 +221,12 @@ class BlogLogin(Handler):
             self.redirect('/blog/welcome')
 
 
+class BlogLogout(Handler):
+    def get(self):
+#hm_hash = self.request.cookies.get('userid')
+        self.response.headers.add_header('Set-Cookie', 'userid=; Path=/')
+        self.redirect('/blog/signup')
+
 class BlogWelcome(Handler):
     def print_db(self):
         users = db.GqlQuery("SELECT * FROM BlogUser")
@@ -233,7 +239,12 @@ class BlogWelcome(Handler):
 #time.sleep(1)
 #self.print_db()
         hm_hash = self.request.cookies.get('userid')
-        (userid, hm_hash) = hm_hash.split('|')
+        if hm_hash:
+            (userid, hm_hash) = hm_hash.split('|')
+        else:
+            self.redirect('/blog/signup')
+            return
+
 #print(userid, hm_hash)
         blog_user = db.GqlQuery("SELECT * FROM BlogUser WHERE hm_hash = :1", hm_hash)
         if blog_user.count() == 0:
@@ -257,4 +268,5 @@ app = webapp2.WSGIApplication([
         ('/blog/signup', BlogSignup),
         ('/blog/welcome', BlogWelcome),
         ('/blog/login', BlogLogin),
+        ('/blog/logout', BlogLogout),
 ], debug=True)
