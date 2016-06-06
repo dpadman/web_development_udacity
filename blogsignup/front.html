@@ -1,0 +1,10 @@
+<body>
+    Welcome
+    {% for blog in blogs %}
+    <div class="blog">
+        <div class="Subject">{{blog.subject}}</div>
+        <pre class="Content">{{blog.content}}</pre>
+    </div>
+    {% endfor %}
+</body>
+
