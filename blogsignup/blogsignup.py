@@ -74,7 +74,6 @@ EMAIL_RE = re.compile(r"^[\S]+@[\S]+\.[\S]+$")
 
 class BlogUser(db.Model):
     username = db.StringProperty(required = True)
-    password = db.StringProperty(required = True)
     userid = db.StringProperty(required = True)
     hm_hash = db.StringProperty(required = True)
     salt = db.StringProperty(required = True)
@@ -104,7 +103,7 @@ class BlogSignup(Handler):
             return gbl_userid
         else:
             u = blog_user.get()
-            print("get_userid:", u.username, u.password, u.userid, u.hm_hash, u.salt, u.email)
+            print("get_userid:", u.username, u.userid, u.hm_hash, u.salt, u.email)
             return -1
 
     def get_7_random_char(self):
@@ -113,19 +112,19 @@ class BlogSignup(Handler):
             s += random.choice(string.letters)
         return s
 
-    def create_hmac(self, userid):
+    def create_hmac(self, password):
         salt = self.get_7_random_char()
-        hm = hmac.new(salt, str(userid)).hexdigest()
+        hm = hmac.new(salt, str(password)).hexdigest()
         return(salt,hm)
 
-    def create_cookie(self, userid):
-        (salt, hm_hash) = self.create_hmac(userid)
+    def create_cookie(self, userid, password):
+        (salt, hm_hash) = self.create_hmac(password)
         self.response.headers.add_header('Set-Cookie', 'userid=%s; Path=/' % (str(userid) + '|' + hm_hash))
         return (salt, hm_hash)
 
-    def create_db_entry(self, username, password, userid, hm_hash, salt, email=None):
+    def create_db_entry(self, username, userid, hm_hash, salt, email=None):
         db_user = BlogUser(username=username,
-                           password=password, userid=str(userid),
+                           userid=str(userid),
                            hm_hash=hm_hash, salt=salt, email=email)
         db_user.put()
 
@@ -168,14 +167,64 @@ class BlogSignup(Handler):
                         username=username,
                         email=email)
         else:
-            (salt, hm_hash) = self.create_cookie(userid)
-            self.create_db_entry(username, password, userid, hm_hash, salt, email)
+            (salt, hm_hash) = self.create_cookie(userid, password)
+            self.create_db_entry(username, userid, hm_hash, salt, email)
             self.redirect('/blog/welcome')
+
+class BlogLogin(Handler):
+    def get_db_user(self, username):
+        blog_user = db.GqlQuery("SELECT * FROM BlogUser WHERE username = :1", username)
+        return blog_user
+
+    def username_match(self, blog_user):
+        if blog_user.count() == 0:
+            return False
+        else:
+            return True
+
+    def password_match(self, blog_user, password):
+        user = blog_user.get()
+
+        if password:
+            hm_hash = hmac.new(str(user.salt), str(password)).hexdigest()
+            if hm_hash == user.hm_hash:
+                return True
+        return False
+
+    def get(self):
+        self.render('bloglogin.html', 
+                    username="", password="", username_err="", password_err="")
+
+    def post(self):
+        username = self.request.get("username")
+        password = self.request.get("password")
+
+        flag_username = False
+        flag_password = False
+
+        blog_user = self.get_db_user(username)
+
+        if not self.username_match(blog_user):
+            flag_username = True
+
+        if not self.password_match(blog_user, password):
+            flag_password = True
+
+        if flag_username or flag_password:
+            self.render('bloglogin.html',
+                        username_err='Username does NOT exist' if flag_username else '',
+                        password_err='Incorrect password' if flag_password else '',
+                        username=username)
+        else:
+            user = blog_user.get()
+            self.response.headers.add_header('Set-Cookie', 'userid=%s; Path=/' % (str(user.userid) + '|' + str(user.hm_hash)))
+            self.redirect('/blog/welcome')
+
 
 class BlogWelcome(Handler):
     def print_db(self):
         users = db.GqlQuery("SELECT * FROM BlogUser")
-#print("users count=" + str(users.count()))
+        print("users count=" + str(users.count()))
         for u in users:
             print(u.username, u.password, u.userid, u.hm_hash, u.salt, u.email)
 
@@ -185,17 +234,19 @@ class BlogWelcome(Handler):
 #self.print_db()
         hm_hash = self.request.cookies.get('userid')
         (userid, hm_hash) = hm_hash.split('|')
-        print(userid, hm_hash)
+#print(userid, hm_hash)
         blog_user = db.GqlQuery("SELECT * FROM BlogUser WHERE hm_hash = :1", hm_hash)
         if blog_user.count() == 0:
             self.redirect('/blog/signup')
         else:
-            for b in blog_user:
-                db_hm_hash = hmac.new(str(b.salt), str(b.userid)).hexdigest()
-                if db_hm_hash != hm_hash:
-                    self.redirect('/blog/signup')
-                else:
-                    self.render('welcome.html', user=b)
+            b = blog_user.get()
+            if b.userid != userid:
+                self.redirect('/blog/signup')
+#db_hm_hash = hmac.new(str(b.salt), str(userid)).hexdigest()
+#if db_hm_hash != hm_hash:
+#self.redirect('/blog/signup')
+            else:
+                self.render('welcome.html', user=b)
 
     def post(self):
         pass
@@ -205,4 +256,5 @@ app = webapp2.WSGIApplication([
         ('/blog/newpost', BlogNewPost),
         ('/blog/signup', BlogSignup),
         ('/blog/welcome', BlogWelcome),
+        ('/blog/login', BlogLogin),
 ], debug=True)
