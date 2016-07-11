@@ -10,6 +10,7 @@ import webapp2
 import string
 import random
 import hmac
+import json
 
 from google.appengine.ext import db
 
@@ -23,12 +24,17 @@ class Handler(webapp2.RequestHandler):
     def write(self, *a, **kw):
         self.response.out.write(*a, **kw)
 
+    def write_json(self, j):
+        self.response.headers['Content-Type'] = 'application/json'
+        self.response.out.write(j)
+
     def render_str(self, template, **kw):
         t = jinja_env.get_template(template)
         return t.render(kw)
 
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
+
 
 class BlogEntry(db.Model):
     subject = db.StringProperty(required = True)
@@ -50,6 +56,42 @@ class Blog(Handler):
             blogs = db.GqlQuery("SELECT * FROM BlogEntry "
                                 "ORDER BY created DESC")
             self.render("front.html", blogs=blogs)
+
+class PostPage(Handler):
+    def get(self, post_id):
+        blog = BlogEntry.get_by_id(long(post_id))
+        if not blog:
+            self.error(404)
+            return
+
+        blogs = [blog]
+        self.render("front.html", blogs = blogs)
+
+class PostPageJson(Handler):
+    def get(self, post_id):
+        blog = BlogEntry.get_by_id(long(post_id))
+        if not blog:
+            self.error(404)
+            return
+
+        required_list = []
+        required_keys = ['_content', '_subject']
+
+        required_list.append(dict((k, blog.__dict__[k]) for k in required_keys if k in blog.__dict__))
+        j = json.dumps(required_list)
+        self.write_json(j)
+
+class BlogJson(Handler):
+    def get(self):
+        blogs = db.GqlQuery("SELECT * FROM BlogEntry "
+                            "ORDER BY created DESC")
+        required_list = []
+        required_keys = ['_content', '_subject']
+        for blog in blogs:
+            required_list.append(dict((k, blog.__dict__[k]) for k in required_keys if k in blog.__dict__))
+
+        j = json.dumps(required_list)
+        self.write_json(j)
 
 class BlogNewPost(Handler):
     def get(self):
@@ -255,9 +297,12 @@ class BlogWelcome(Handler):
 
 app = webapp2.WSGIApplication([
         ('/blog', Blog),
+        ('/blog/([0-9]+)', PostPage),
+        ('/blog/([0-9]+).json', PostPageJson),
         ('/blog/newpost', BlogNewPost),
         ('/blog/signup', BlogSignup),
         ('/blog/welcome', BlogWelcome),
+        ('/blog/.json', BlogJson),
         ('/blog/login', BlogLogin),
         ('/blog/logout', BlogLogout),
 ], debug=True)
