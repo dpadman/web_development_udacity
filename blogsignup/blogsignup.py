@@ -11,14 +11,45 @@ import string
 import random
 import hmac
 import json
+import logging
+import time
 
 from google.appengine.ext import db
+from google.appengine.api import memcache
 
 gbl_userid = 1000
+query_time = 0
 
 template_dir = os.path.dirname(__file__)
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
                                autoescape=True)
+
+def get_data(update):
+    global query_time
+    if update or memcache.get('blogs') is None:
+        logging.info('reading from DB')
+        blogs = db.GqlQuery("SELECT * FROM BlogEntry "
+                            "ORDER BY created DESC")
+        blogs = list(blogs)
+        memcache.set('blogs', blogs)
+        query_time = int(time.time())
+    else:
+        blogs = memcache.get('blogs')
+        blogs = list(blogs)
+    return blogs
+
+def get_data_by_id(id, update):
+    query_time = 0
+    if update or memcache.get(str(id)) is None:
+        logging.info('reading from DB for %ld' % id)
+        blog = BlogEntry.get_by_id(id)
+        if blog is None:
+            return None
+        query_time = int(time.time())
+        memcache.set(str(id), (query_time, blog))
+    else:
+        (query_time, blog) = memcache.get(str(id))
+    return (query_time, blog)
 
 class Handler(webapp2.RequestHandler):
     def write(self, *a, **kw):
@@ -43,33 +74,36 @@ class BlogEntry(db.Model):
 
 class Blog(Handler):
     def get(self):
+        global query_time
         id = self.request.get('id', 0)
         id = id and long(id)
         if (id):
-            blog = BlogEntry.get_by_id(id)
+            (query_time, blog) = get_data_by_id(id, False)
             if blog is None:
                 self.redirect('/blog/invalid')
             else:
                 blogs = [blog]
-                self.render("front.html", blogs=blogs)
+                seconds = int(time.time() - query_time)
+                self.render("front.html", blogs=blogs, secs=seconds)
         else:
-            blogs = db.GqlQuery("SELECT * FROM BlogEntry "
-                                "ORDER BY created DESC")
-            self.render("front.html", blogs=blogs)
+            blogs = get_data(False)
+            seconds = int(time.time() - query_time)
+            self.render("front.html", blogs=blogs, secs=seconds)
 
 class PostPage(Handler):
     def get(self, post_id):
-        blog = BlogEntry.get_by_id(long(post_id))
+        (query_time, blog) = get_data_by_id(long(post_id), False)
         if not blog:
             self.error(404)
             return
 
         blogs = [blog]
-        self.render("front.html", blogs = blogs)
+        seconds = int(time.time() - query_time)
+        self.render("front.html", blogs = blogs, secs=seconds)
 
 class PostPageJson(Handler):
     def get(self, post_id):
-        blog = BlogEntry.get_by_id(long(post_id))
+        (query_time, blog) = get_data_by_id(long(post_id), False)
         if not blog:
             self.error(404)
             return
@@ -104,7 +138,10 @@ class BlogNewPost(Handler):
         if subject and content:
             blog = BlogEntry(subject = subject, content = content)
             blog.put()
-            self.redirect("/blog?id=" + str(blog.key().id()))
+            get_data_by_id(blog.key().id(), True)
+            get_data(True)
+            #self.redirect("/blog?id=" + str(blog.key().id()))
+            self.redirect("/blog/" + str(blog.key().id()))
         else:
             self.render('blogpost.html', subject=subject, content=content)
 
@@ -210,6 +247,8 @@ class BlogSignup(Handler):
         else:
             (salt, hm_hash) = self.create_cookie(userid, password)
             self.create_db_entry(username, userid, hm_hash, salt, email)
+            logging.info('user %s hm_hash %s' % (userid, hm_hash))
+            time.sleep(1)
             self.redirect('/blog/welcome')
 
 class BlogLogin(Handler):
@@ -276,6 +315,7 @@ class BlogWelcome(Handler):
 
     def get(self):
         hm_hash = self.request.cookies.get('userid')
+        logging.info('Cookie %s' % hm_hash)
         if hm_hash:
             (userid, hm_hash) = hm_hash.split('|')
         else:
@@ -295,6 +335,13 @@ class BlogWelcome(Handler):
     def post(self):
         pass
 
+class BlogFlush(Handler):
+    def get(self):
+        global query_time
+        query_time = 0
+        memcache.flush_all()
+        self.redirect('/blog')
+
 app = webapp2.WSGIApplication([
         ('/blog', Blog),
         ('/blog/([0-9]+)', PostPage),
@@ -305,4 +352,5 @@ app = webapp2.WSGIApplication([
         ('/blog/.json', BlogJson),
         ('/blog/login', BlogLogin),
         ('/blog/logout', BlogLogout),
+        ('/blog/flush', BlogFlush),
 ], debug=True)

@@ -7,8 +7,10 @@ from string import letters
 
 import webapp2
 import jinja2
+import logging
 
 from google.appengine.ext import db
+from google.appengine.api import memcache
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
@@ -22,12 +24,14 @@ def console(s):
 
 IP_URL = "http://api.hostip.info/?ip="
 def get_coords(ip):
-    ip = "4.2.2.2"
+    ip = "8.8.8.8"
     url = IP_URL + ip
     content = None
     try:
         content = urllib2.urlopen(url).read()
     except urllib2.URLError:
+        return
+    except Exception:
         return
 
     if content:
@@ -45,6 +49,24 @@ def gmaps_img(points):
     markers = '&'.join('markers=%s,%s' % (p.lat, p.lon)
                        for p in points)
     return GMAPS_URL + markers
+
+def get_data(update):
+    if update or memcache.get('top10') is None:
+        logging.info('reading from DB')
+        arts = db.GqlQuery("SELECT * "
+                           "FROM Art "
+                           "WHERE ANCESTOR IS :1 "
+                           "ORDER BY created DESC "
+                           "LIMIT 10",
+                           art_key)
+        # update our cache
+        arts = list(arts)
+        memcache.set('top10', arts)
+    else:
+        arts = memcache.get('top10')
+        arts = list(arts)
+    return arts
+
 
 class Handler(webapp2.RequestHandler):
     def write(self, *a, **kw):
@@ -65,15 +87,13 @@ class Art(db.Model):
 
 class MainPage(Handler):
     def render_front(self, error='', title='', art=''):
-        arts = db.GqlQuery("SELECT * "
-                           "FROM Art "
-                           "WHERE ANCESTOR IS :1 "
-                           "ORDER BY created DESC "
-                           "LIMIT 10",
-                           art_key)
-
-        # prevent the running of same query multiple times
+        arts = memcache.get('top10')
+        if arts is None:
+            arts = get_data(False)
         arts = list(arts)
+
+        # update our cache
+        memcache.set('top10', arts)
 
         # find which arts have coords
         points = filter(None, (a.coords for a in arts))
@@ -103,6 +123,9 @@ class MainPage(Handler):
                 p.coords = coords
 
             p.put()
+
+            # get the top 10 added arts
+            arts = get_data(True)
 
             self.redirect('/')
 
